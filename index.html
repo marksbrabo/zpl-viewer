@@ -102,6 +102,13 @@ main{flex:1;display:flex;overflow:hidden}
 /* Zoom indicator */
 .zoom-indicator{font-size:11px;color:var(--accent);font-weight:600}
 
+/* Paper mockup */
+.paper-strip{background:#fff;border-radius:4px;display:flex;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.3)}
+.paper-strip .paper-cell{display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+.paper-strip .paper-cell+.paper-cell{border-left:1px dashed #ccc}
+.paper-strip .paper-cell canvas{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges}
+.paper-strip .cell-num{position:absolute;top:2px;left:4px;font-size:9px;color:#aaa;font-weight:600}
+
 /* Separator */
 .sep{width:1px;height:20px;background:var(--border);margin:0 2px}
 </style>
@@ -113,7 +120,7 @@ main{flex:1;display:flex;overflow:hidden}
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h3v3H7zM14 7h3v3h-3zM7 14h3v3H7zM14 14h3v3h-3z"/></svg>
     <span>ZPL</span> Viewer
   </h1>
-  <span style="font-size:12px;color:var(--text2)">Etiquetas Shopee &bull; 40&times;25mm</span>
+  <span style="font-size:12px;color:var(--text2)">Etiquetas Shopee &bull; 80&times;24mm (2 col.)</span>
   <div class="header-actions">
     <button class="btn btn-sm" id="btnLoad" title="Carregar arquivo">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -171,7 +178,8 @@ main{flex:1;display:flex;overflow:hidden}
       <div class="control-group">
         <label>Visualizar:</label>
         <select id="viewMode">
-          <option value="individual" selected>Etiquetas individuais (40x25mm)</option>
+          <option value="paper" selected>Papel 80&times;24mm (2 colunas)</option>
+          <option value="individual">Etiquetas individuais</option>
           <option value="raw">Bitmap original completo</option>
         </select>
       </div>
@@ -182,7 +190,7 @@ main{flex:1;display:flex;overflow:hidden}
         </button>
         <button class="btn btn-sm" id="btnExportPdf">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          PDF 40&times;25mm
+          PDF 80&times;24mm
         </button>
       </div>
     </div>
@@ -314,17 +322,27 @@ btnClear.addEventListener('click', () => {
 // ──────────── Zoom ────────────
 zoomRange.addEventListener('input', () => {
   zoomLabel.textContent = zoomRange.value + '%';
-  applyZoom();
+  if (viewMode.value === 'paper') applyPaperZoom();
+  else applyZoom();
 });
 
 function applyZoom() {
   const scale = zoomRange.value / 100;
   document.querySelectorAll('.label-card canvas').forEach(c => {
-    // Use original bitmap dimensions (not upscaled canvas dimensions)
     const bw = c._bmpW || c._origW;
     const bh = c._bmpH || c._origH;
     c.style.width = (bw * scale) + 'px';
     c.style.height = (bh * scale) + 'px';
+  });
+}
+
+function applyPaperZoom() {
+  const scale = zoomRange.value / 100;
+  document.querySelectorAll('.paper-strip').forEach(strip => {
+    strip.style.transform = `scale(${scale})`;
+    strip.style.transformOrigin = 'top left';
+    strip.style.marginBottom = (strip._paperH * (scale - 1) + 12) + 'px';
+    strip.style.marginRight = (strip._paperW * (scale - 1)) + 'px';
   });
 }
 
@@ -532,17 +550,24 @@ function renderZPL() {
   displayLabels();
 }
 
+function getAllCells() {
+  const allCells = [];
+  rawBitmaps.forEach(bmp => {
+    const cells = detectGrid(bmp.bitmap, bmp.bytesPerRow, bmp.width, bmp.height);
+    cells.forEach(cell => allCells.push({ bmp, cell }));
+  });
+  return allCells;
+}
+
 function displayLabels() {
   renderedLabels = [];
   previewArea.innerHTML = '';
   emptyState.style.display = 'none';
 
   const mode = viewMode.value;
-  let totalIndividual = 0;
 
-  rawBitmaps.forEach((bmp, bi) => {
-    if (mode === 'raw') {
-      // Show full bitmap as-is
+  if (mode === 'raw') {
+    rawBitmaps.forEach((bmp, bi) => {
       const card = makeCard(
         `Bitmap ${bi + 1}`,
         `${bmp.width}&times;${bmp.height}px`,
@@ -550,49 +575,80 @@ function displayLabels() {
       );
       previewArea.appendChild(card);
       renderedLabels.push({ canvas: card.querySelector('canvas'), width: bmp.width, height: bmp.height });
+    });
 
-    } else {
-      // Split into individual labels
-      const cells = detectGrid(bmp.bitmap, bmp.bytesPerRow, bmp.width, bmp.height);
+  } else if (mode === 'individual') {
+    const allCells = getAllCells();
+    const wrap = document.createElement('div');
+    wrap.className = 'bitmap-labels';
+    allCells.forEach(({ bmp, cell }, i) => {
+      const canvas = bitmapToCanvas(bmp.bitmap, bmp.bytesPerRow, cell.x, cell.y, cell.w, cell.h);
+      const card = makeCard(`#${i+1}`, `${cell.w}&times;${cell.h}px`, canvas);
+      wrap.appendChild(card);
+      renderedLabels.push({ canvas, width: cell.w, height: cell.h });
+    });
+    previewArea.appendChild(wrap);
 
-      if (cells.length === 0) {
-        // Fallback: show whole bitmap
-        const card = makeCard(
-          `Bitmap ${bi + 1}`,
-          `${bmp.width}&times;${bmp.height}px`,
-          bitmapToCanvas(bmp.bitmap, bmp.bytesPerRow, 0, 0, bmp.width, bmp.height)
-        );
-        previewArea.appendChild(card);
-        renderedLabels.push({ canvas: card.querySelector('canvas'), width: bmp.width, height: bmp.height });
+  } else {
+    // Paper mode: 80x24mm, 2 columns of 40x24mm
+    const allCells = getAllCells();
+    const PAPER_W_MM = 80, PAPER_H_MM = 24, COLS = 2;
+    const CELL_W_MM = PAPER_W_MM / COLS; // 40mm
+    // Screen scale: 4px per mm at 100% zoom
+    const PX_PER_MM = 4;
 
-      } else {
-        const section = document.createElement('div');
-        section.className = 'bitmap-section';
-        section.innerHTML = `<h3>Pagina ${bi + 1} &mdash; ${cells.length} etiquetas</h3>`;
-        const wrap = document.createElement('div');
-        wrap.className = 'bitmap-labels';
+    for (let i = 0; i < allCells.length; i += COLS) {
+      const strip = document.createElement('div');
+      strip.className = 'paper-strip';
+      strip.style.width = (PAPER_W_MM * PX_PER_MM) + 'px';
+      strip.style.height = (PAPER_H_MM * PX_PER_MM) + 'px';
+      strip._paperW = PAPER_W_MM * PX_PER_MM;
+      strip._paperH = PAPER_H_MM * PX_PER_MM;
 
-        cells.forEach((cell, ci) => {
-          totalIndividual++;
+      for (let c = 0; c < COLS; c++) {
+        const idx = i + c;
+        const cellDiv = document.createElement('div');
+        cellDiv.className = 'paper-cell';
+        cellDiv.style.width = (CELL_W_MM * PX_PER_MM) + 'px';
+        cellDiv.style.height = (PAPER_H_MM * PX_PER_MM) + 'px';
+
+        if (idx < allCells.length) {
+          const { bmp, cell } = allCells[idx];
           const canvas = bitmapToCanvas(bmp.bitmap, bmp.bytesPerRow, cell.x, cell.y, cell.w, cell.h);
-          const card = makeCard(
-            `#${totalIndividual}`,
-            `${cell.w}&times;${cell.h}px`,
-            canvas
-          );
-          wrap.appendChild(card);
-          renderedLabels.push({ canvas, width: cell.w, height: cell.h });
-        });
 
-        section.appendChild(wrap);
-        previewArea.appendChild(section);
+          // Scale to fit within 40x24mm cell, preserving aspect ratio
+          const contentWmm = cell.w / 8; // at 8 dpmm
+          const contentHmm = cell.h / 8;
+          const scaleW = CELL_W_MM / contentWmm;
+          const scaleH = PAPER_H_MM / contentHmm;
+          const scale = Math.min(scaleW, scaleH);
+          const dispW = contentWmm * scale * PX_PER_MM;
+          const dispH = contentHmm * scale * PX_PER_MM;
+
+          canvas.style.width = dispW + 'px';
+          canvas.style.height = dispH + 'px';
+          // Don't override with zoom for paper mode
+          canvas._paperMode = true;
+
+          const num = document.createElement('span');
+          num.className = 'cell-num';
+          num.textContent = '#' + (idx + 1);
+          cellDiv.appendChild(num);
+          cellDiv.appendChild(canvas);
+          renderedLabels.push({ canvas, width: cell.w, height: cell.h });
+        }
+
+        strip.appendChild(cellDiv);
       }
+
+      previewArea.appendChild(strip);
     }
-  });
+  }
 
   const count = renderedLabels.length;
   labelCount.textContent = count + ' etiqueta' + (count !== 1 ? 's' : '');
-  applyZoom();
+  if (mode !== 'paper') applyZoom();
+  else applyPaperZoom();
   toast(count + ' etiqueta(s) renderizada(s)');
 }
 
@@ -622,42 +678,53 @@ btnPng.addEventListener('click', () => {
   toast(renderedLabels.length + ' PNG(s) exportado(s)');
 });
 
-// ──────────── Export PDF 40x25mm (2 colunas em 80mm) ────────────
+// ──────────── Export PDF 80x24mm (2 colunas de 40mm) ────────────
 btnPdf.addEventListener('click', () => {
   if (!renderedLabels.length) { toast('Renderize primeiro', 'error'); return; }
 
   const { jsPDF } = window.jspdf;
+  const PAPER_W = 80, PAPER_H = 24, COLS = 2;
+  const CELL_W = PAPER_W / COLS; // 40mm
+  const DPMM = 8; // densidade da Elgin L42
 
-  // Label: 40x25mm, Paper: 80x25mm (2 columns)
-  const labelW = 40;
-  const labelH = 25;
-  const paperW = 80;
-  const paperH = 25;
-
-  const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: [paperH, paperW] });
+  const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: [PAPER_H, PAPER_W] });
 
   let col = 0;
   let pageStarted = true;
 
   renderedLabels.forEach((lbl, i) => {
     if (col === 0 && !pageStarted) {
-      doc.addPage([paperH, paperW]);
+      doc.addPage([PAPER_H, PAPER_W]);
       pageStarted = true;
     }
 
-    const xOffset = col * labelW;
+    // Content size in mm at printer density
+    const contentW = lbl.width / DPMM;
+    const contentH = lbl.height / DPMM;
+
+    // Scale proportionally to fit within CELL_W x PAPER_H
+    const scaleW = CELL_W / contentW;
+    const scaleH = PAPER_H / contentH;
+    const scale = Math.min(scaleW, scaleH);
+    const drawW = contentW * scale;
+    const drawH = contentH * scale;
+
+    // Center within the cell
+    const xOffset = col * CELL_W + (CELL_W - drawW) / 2;
+    const yOffset = (PAPER_H - drawH) / 2;
+
     const imgData = lbl.canvas.toDataURL('image/png');
-    doc.addImage(imgData, 'PNG', xOffset, 0, labelW, labelH);
+    doc.addImage(imgData, 'PNG', xOffset, yOffset, drawW, drawH);
 
     col++;
-    if (col >= 2) {
+    if (col >= COLS) {
       col = 0;
       pageStarted = false;
     }
   });
 
-  doc.save('etiquetas_shopee_40x25mm.pdf');
-  toast('PDF exportado — ' + renderedLabels.length + ' etiquetas em paginas 80x25mm');
+  doc.save('etiquetas_shopee_80x24mm.pdf');
+  toast('PDF exportado — ' + renderedLabels.length + ' etiquetas em paginas 80x24mm');
 });
 </script>
 </body>
