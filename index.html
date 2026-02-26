@@ -723,10 +723,10 @@ function displayLabels() {
     previewArea.appendChild(wrap);
 
   } else {
-    // Paper mode: 83x24mm (40mm + 3mm gap + 40mm), 2 columns
+    // Paper mode: 2mm + 40mm + 3mm + 40mm + 2mm = 87x24mm
     const allCells = getAllCells();
-    const CELL_W_MM = 40, PAPER_H_MM = 24, COLS = 2, GAP_MM = 3;
-    const PAPER_W_MM = CELL_W_MM * COLS + GAP_MM; // 83mm
+    const CELL_W_MM = 40, PAPER_H_MM = 24, COLS = 2, GAP_MM = 3, MARGIN_MM = 2;
+    const PAPER_W_MM = MARGIN_MM + CELL_W_MM * COLS + GAP_MM + MARGIN_MM; // 87mm
     const DPMM = 8;
     const PX_PER_MM = 4;
 
@@ -744,7 +744,8 @@ function displayLabels() {
         cellDiv.className = 'paper-cell';
         cellDiv.style.width = (CELL_W_MM * PX_PER_MM) + 'px';
         cellDiv.style.height = (PAPER_H_MM * PX_PER_MM) + 'px';
-        // Add 3mm gap after the first column
+        // Margins: 2mm left, 3mm gap between columns, 2mm right
+        if (c === 0) cellDiv.style.marginLeft = (MARGIN_MM * PX_PER_MM) + 'px';
         if (c === 1) cellDiv.style.marginLeft = (GAP_MM * PX_PER_MM) + 'px';
 
         if (idx < allCells.length) {
@@ -821,8 +822,8 @@ btnPdf.addEventListener('click', () => {
   if (!allCells.length) { toast('Nenhuma etiqueta detectada', 'error'); return; }
 
   const { jsPDF } = window.jspdf;
-  const CELL_W = 40, PAPER_H = 24, COLS = 2, GAP = 3;
-  const PAPER_W = CELL_W * COLS + GAP; // 83mm
+  const CELL_W = 40, PAPER_H = 24, COLS = 2, GAP = 3, MARGIN = 2;
+  const PAPER_W = MARGIN + CELL_W * COLS + GAP + MARGIN; // 87mm
   const DPMM = 8;
 
   const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: [PAPER_H, PAPER_W] });
@@ -851,9 +852,8 @@ btnPdf.addEventListener('click', () => {
     const drawW = contentW * scale;
     const drawH = contentH * scale;
 
-    // Center within cell, accounting for 3mm gap between columns
-    // Col 0: x = 0..CELL_W, Col 1: x = CELL_W+GAP..PAPER_W
-    const cellStartX = col * (CELL_W + GAP);
+    // Col 0: x = MARGIN, Col 1: x = MARGIN+CELL_W+GAP
+    const cellStartX = MARGIN + col * (CELL_W + GAP);
     const xOffset = cellStartX + (CELL_W - drawW) / 2;
     const yOffset = (PAPER_H - drawH) / 2;
 
