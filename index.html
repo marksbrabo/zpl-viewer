@@ -723,10 +723,10 @@ function displayLabels() {
     previewArea.appendChild(wrap);
 
   } else {
-    // Paper mode: 2mm + 40mm + 3mm + 40mm + 2mm = 87x24mm
+    // Paper mode: 2mm + 39mm + 4mm + 39mm + 2mm = 86x24mm
     const allCells = getAllCells();
-    const CELL_W_MM = 40, PAPER_H_MM = 24, COLS = 2, GAP_MM = 3, MARGIN_MM = 2;
-    const PAPER_W_MM = MARGIN_MM + CELL_W_MM * COLS + GAP_MM + MARGIN_MM; // 87mm
+    const CELL_W_MM = 39, PAPER_H_MM = 24, COLS = 2, GAP_MM = 4, MARGIN_MM = 2;
+    const PAPER_W_MM = MARGIN_MM + CELL_W_MM * COLS + GAP_MM + MARGIN_MM; // 86mm
     const DPMM = 8;
     const PX_PER_MM = 4;
 
@@ -822,8 +822,8 @@ btnPdf.addEventListener('click', () => {
   if (!allCells.length) { toast('Nenhuma etiqueta detectada', 'error'); return; }
 
   const { jsPDF } = window.jspdf;
-  const CELL_W = 40, PAPER_H = 24, COLS = 2, GAP = 3, MARGIN = 2;
-  const PAPER_W = MARGIN + CELL_W * COLS + GAP + MARGIN; // 87mm
+  const CELL_W = 39, PAPER_H = 24, COLS = 2, GAP = 4, MARGIN = 2;
+  const PAPER_W = MARGIN + CELL_W * COLS + GAP + MARGIN; // 86mm
   const DPMM = 8;
 
   const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: [PAPER_H, PAPER_W] });
