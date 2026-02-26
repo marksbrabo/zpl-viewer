@@ -723,10 +723,10 @@ function displayLabels() {
     previewArea.appendChild(wrap);
 
   } else {
-    // Paper mode: 80x24mm, 2 columns of 40x24mm
+    // Paper mode: 80x24mm, 2 columns with 3mm gap between them
     const allCells = getAllCells();
-    const PAPER_W_MM = 80, PAPER_H_MM = 24, COLS = 2;
-    const CELL_W_MM = PAPER_W_MM / COLS;
+    const PAPER_W_MM = 80, PAPER_H_MM = 24, COLS = 2, GAP_MM = 3;
+    const CELL_W_MM = (PAPER_W_MM - GAP_MM) / COLS; // 38.5mm each
     const DPMM = 8;
     const PX_PER_MM = 4;
 
@@ -744,13 +744,15 @@ function displayLabels() {
         cellDiv.className = 'paper-cell';
         cellDiv.style.width = (CELL_W_MM * PX_PER_MM) + 'px';
         cellDiv.style.height = (PAPER_H_MM * PX_PER_MM) + 'px';
+        // Add 3mm gap after the first column
+        if (c === 1) cellDiv.style.marginLeft = (GAP_MM * PX_PER_MM) + 'px';
 
         if (idx < allCells.length) {
           const { bmp, cell } = allCells[idx];
           const canvas = composeLabel(bmp.bitmap, bmp.bytesPerRow, cell);
           const bw = canvas._bmpW, bh = canvas._bmpH;
 
-          // Scale composed label to fit within 40x24mm
+          // Scale composed label to fit within 38.5x24mm
           const contentWmm = bw / DPMM;
           const contentHmm = bh / DPMM;
           const scaleW = CELL_W_MM / contentWmm;
@@ -819,8 +821,8 @@ btnPdf.addEventListener('click', () => {
   if (!allCells.length) { toast('Nenhuma etiqueta detectada', 'error'); return; }
 
   const { jsPDF } = window.jspdf;
-  const PAPER_W = 80, PAPER_H = 24, COLS = 2;
-  const CELL_W = PAPER_W / COLS; // 40mm
+  const PAPER_W = 80, PAPER_H = 24, COLS = 2, GAP = 3;
+  const CELL_W = (PAPER_W - GAP) / COLS; // 38.5mm each
   const DPMM = 8;
 
   const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: [PAPER_H, PAPER_W] });
@@ -849,8 +851,10 @@ btnPdf.addEventListener('click', () => {
     const drawW = contentW * scale;
     const drawH = contentH * scale;
 
-    // Center within the cell
-    const xOffset = col * CELL_W + (CELL_W - drawW) / 2;
+    // Center within cell, accounting for 3mm gap between columns
+    // Col 0: x = 0..CELL_W, Col 1: x = CELL_W+GAP..PAPER_W
+    const cellStartX = col * (CELL_W + GAP);
+    const xOffset = cellStartX + (CELL_W - drawW) / 2;
     const yOffset = (PAPER_H - drawH) / 2;
 
     const imgData = canvas.toDataURL('image/png');
