@@ -400,15 +400,18 @@ function parseZPL(raw) {
 //  BITMAP → CANVAS helper
 // ══════════════════════════════════════════════
 
-function bitmapToCanvas(bitmap, bytesPerRow, x, y, w, h) {
-  // Upscale factor for sharp rendering (each bitmap pixel → NxN canvas pixels)
+function bitmapToCanvas(bitmap, bytesPerRow, x, y, w, h, rotate90) {
+  // Upscale factor for sharp rendering (each bitmap pixel -> NxN canvas pixels)
   const S = 3;
+  // If rotated 90° CW: output dimensions are swapped
+  const outW = rotate90 ? h : w;
+  const outH = rotate90 ? w : h;
+
   const canvas = document.createElement('canvas');
-  canvas.width = w * S;
-  canvas.height = h * S;
-  // Store original bitmap dimensions for zoom calculation
-  canvas._bmpW = w;
-  canvas._bmpH = h;
+  canvas.width = outW * S;
+  canvas.height = outH * S;
+  canvas._bmpW = outW;
+  canvas._bmpH = outH;
 
   const ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = false;
@@ -417,13 +420,22 @@ function bitmapToCanvas(bitmap, bytesPerRow, x, y, w, h) {
   const bgG = parseInt(bg.slice(3,5),16);
   const bgB = parseInt(bg.slice(5,7),16);
 
-  const imgData = ctx.createImageData(w * S, h * S);
+  const imgData = ctx.createImageData(outW * S, outH * S);
   const px = imgData.data;
 
-  for (let row = 0; row < h; row++) {
-    for (let col = 0; col < w; col++) {
-      const srcRow = y + row;
-      const srcCol = x + col;
+  for (let oy = 0; oy < outH; oy++) {
+    for (let ox = 0; ox < outW; ox++) {
+      // Map rotated coords back to original bitmap coords
+      let srcCol, srcRow;
+      if (rotate90) {
+        // 90° CW: rotated(rx,ry) <- original(ry, H-1-rx)
+        srcCol = x + oy;
+        srcRow = y + (h - 1 - ox);
+      } else {
+        srcCol = x + ox;
+        srcRow = y + oy;
+      }
+
       const byteIdx = srcRow * bytesPerRow + Math.floor(srcCol / 8);
       const bitIdx = 7 - (srcCol % 8);
       const bit = (bitmap[byteIdx] >> bitIdx) & 1;
@@ -431,10 +443,9 @@ function bitmapToCanvas(bitmap, bytesPerRow, x, y, w, h) {
       const g = bit ? 0 : bgG;
       const b = bit ? 0 : bgB;
 
-      // Fill SxS block
       for (let sy = 0; sy < S; sy++) {
         for (let sx = 0; sx < S; sx++) {
-          const pi = ((row * S + sy) * w * S + (col * S + sx)) * 4;
+          const pi = ((oy * S + sy) * outW * S + (ox * S + sx)) * 4;
           px[pi] = r; px[pi+1] = g; px[pi+2] = b; px[pi+3] = 255;
         }
       }
@@ -578,23 +589,24 @@ function displayLabels() {
     });
 
   } else if (mode === 'individual') {
+    // Rotated 90° CW: QR on left, text on right
     const allCells = getAllCells();
     const wrap = document.createElement('div');
     wrap.className = 'bitmap-labels';
     allCells.forEach(({ bmp, cell }, i) => {
-      const canvas = bitmapToCanvas(bmp.bitmap, bmp.bytesPerRow, cell.x, cell.y, cell.w, cell.h);
-      const card = makeCard(`#${i+1}`, `${cell.w}&times;${cell.h}px`, canvas);
+      const canvas = bitmapToCanvas(bmp.bitmap, bmp.bytesPerRow, cell.x, cell.y, cell.w, cell.h, true);
+      const card = makeCard(`#${i+1}`, `${cell.h}&times;${cell.w}px (90&deg;)`, canvas);
       wrap.appendChild(card);
-      renderedLabels.push({ canvas, width: cell.w, height: cell.h });
+      renderedLabels.push({ canvas, width: cell.h, height: cell.w });
     });
     previewArea.appendChild(wrap);
 
   } else {
-    // Paper mode: 80x24mm, 2 columns of 40x24mm
+    // Paper mode: 80x24mm, 2 columns of 40x24mm, labels rotated 90° CW
     const allCells = getAllCells();
     const PAPER_W_MM = 80, PAPER_H_MM = 24, COLS = 2;
     const CELL_W_MM = PAPER_W_MM / COLS; // 40mm
-    // Screen scale: 4px per mm at 100% zoom
+    const DPMM = 8;
     const PX_PER_MM = 4;
 
     for (let i = 0; i < allCells.length; i += COLS) {
@@ -614,11 +626,12 @@ function displayLabels() {
 
         if (idx < allCells.length) {
           const { bmp, cell } = allCells[idx];
-          const canvas = bitmapToCanvas(bmp.bitmap, bmp.bytesPerRow, cell.x, cell.y, cell.w, cell.h);
+          // Rotated 90° CW: output is cell.h × cell.w
+          const canvas = bitmapToCanvas(bmp.bitmap, bmp.bytesPerRow, cell.x, cell.y, cell.w, cell.h, true);
 
-          // Scale to fit within 40x24mm cell, preserving aspect ratio
-          const contentWmm = cell.w / 8; // at 8 dpmm
-          const contentHmm = cell.h / 8;
+          // Rotated content size in mm
+          const contentWmm = cell.h / DPMM; // was height, now width
+          const contentHmm = cell.w / DPMM; // was width, now height
           const scaleW = CELL_W_MM / contentWmm;
           const scaleH = PAPER_H_MM / contentHmm;
           const scale = Math.min(scaleW, scaleH);
@@ -627,7 +640,6 @@ function displayLabels() {
 
           canvas.style.width = dispW + 'px';
           canvas.style.height = dispH + 'px';
-          // Don't override with zoom for paper mode
           canvas._paperMode = true;
 
           const num = document.createElement('span');
@@ -635,7 +647,7 @@ function displayLabels() {
           num.textContent = '#' + (idx + 1);
           cellDiv.appendChild(num);
           cellDiv.appendChild(canvas);
-          renderedLabels.push({ canvas, width: cell.w, height: cell.h });
+          renderedLabels.push({ canvas, width: cell.h, height: cell.w });
         }
 
         strip.appendChild(cellDiv);
@@ -678,29 +690,35 @@ btnPng.addEventListener('click', () => {
   toast(renderedLabels.length + ' PNG(s) exportado(s)');
 });
 
-// ──────────── Export PDF 80x24mm (2 colunas de 40mm) ────────────
+// ──────────── Export PDF 80x24mm (2 colunas de 40mm, rotacao 90° CW) ────────────
 btnPdf.addEventListener('click', () => {
-  if (!renderedLabels.length) { toast('Renderize primeiro', 'error'); return; }
+  if (!rawBitmaps.length) { toast('Renderize primeiro', 'error'); return; }
+
+  const allCells = getAllCells();
+  if (!allCells.length) { toast('Nenhuma etiqueta detectada', 'error'); return; }
 
   const { jsPDF } = window.jspdf;
   const PAPER_W = 80, PAPER_H = 24, COLS = 2;
   const CELL_W = PAPER_W / COLS; // 40mm
-  const DPMM = 8; // densidade da Elgin L42
+  const DPMM = 8;
 
   const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: [PAPER_H, PAPER_W] });
 
   let col = 0;
   let pageStarted = true;
 
-  renderedLabels.forEach((lbl, i) => {
+  allCells.forEach(({ bmp, cell }, i) => {
     if (col === 0 && !pageStarted) {
       doc.addPage([PAPER_H, PAPER_W]);
       pageStarted = true;
     }
 
-    // Content size in mm at printer density
-    const contentW = lbl.width / DPMM;
-    const contentH = lbl.height / DPMM;
+    // Generate rotated canvas for PDF
+    const canvas = bitmapToCanvas(bmp.bitmap, bmp.bytesPerRow, cell.x, cell.y, cell.w, cell.h, true);
+
+    // Rotated content size in mm (dimensions swapped)
+    const contentW = cell.h / DPMM;
+    const contentH = cell.w / DPMM;
 
     // Scale proportionally to fit within CELL_W x PAPER_H
     const scaleW = CELL_W / contentW;
@@ -713,7 +731,7 @@ btnPdf.addEventListener('click', () => {
     const xOffset = col * CELL_W + (CELL_W - drawW) / 2;
     const yOffset = (PAPER_H - drawH) / 2;
 
-    const imgData = lbl.canvas.toDataURL('image/png');
+    const imgData = canvas.toDataURL('image/png');
     doc.addImage(imgData, 'PNG', xOffset, yOffset, drawW, drawH);
 
     col++;
@@ -724,7 +742,7 @@ btnPdf.addEventListener('click', () => {
   });
 
   doc.save('etiquetas_shopee_80x24mm.pdf');
-  toast('PDF exportado — ' + renderedLabels.length + ' etiquetas em paginas 80x24mm');
+  toast('PDF exportado — ' + allCells.length + ' etiquetas rotacionadas em paginas 80x24mm');
 });
 </script>
 </body>
